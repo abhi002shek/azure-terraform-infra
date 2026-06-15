@@ -1,0 +1,94 @@
+# Manual destroy pipeline — run only when you intend to tear down an environment
+trigger: none
+
+parameters:
+  - name: environment
+    type: string
+    values:
+      - dev
+      - staging
+    default: dev
+
+variables:
+  - group: terraform-secrets
+  - name: TERRAFORM_VERSION
+    value: 1.9.8
+  - name: BACKEND_STORAGE_ACCOUNT
+    ${{ if eq(parameters.environment, 'dev') }}:
+      value: tfdevbackend2024piyush
+    ${{ if eq(parameters.environment, 'staging') }}:
+      value: tfstagebackend2024piyush
+  - name: BACKEND_STATE_KEY
+    ${{ if eq(parameters.environment, 'dev') }}:
+      value: dev.tfstate
+    ${{ if eq(parameters.environment, 'staging') }}:
+      value: stage.tfstate
+
+stages:
+  - stage: Plan_Destroy
+    jobs:
+      - job: terraform_plan_destroy
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: TerraformInstaller@0
+            inputs:
+              terraformVersion: $(TERRAFORM_VERSION)
+
+          - task: TerraformTaskV4@4
+            displayName: Terraform init
+            inputs:
+              provider: azurerm
+              command: init
+              workingDirectory: $(System.DefaultWorkingDirectory)/${{ parameters.environment }}
+              backendServiceArm: Azure-Service-Connection
+              backendAzureRmResourceGroupName: terraform-state-rg
+              backendAzureRmStorageAccountName: $(BACKEND_STORAGE_ACCOUNT)
+              backendAzureRmContainerName: tfstate
+              backendAzureRmKey: $(BACKEND_STATE_KEY)
+
+          - task: TerraformTaskV4@4
+            displayName: Terraform plan destroy
+            inputs:
+              provider: azurerm
+              command: plan
+              workingDirectory: $(System.DefaultWorkingDirectory)/${{ parameters.environment }}
+              environmentServiceNameAzureRM: Azure-Service-Connection
+              commandOptions: -destroy
+              publishPlanResults: tfdestroy
+
+  - stage: Destroy
+    dependsOn: Plan_Destroy
+    condition: succeeded()
+    jobs:
+      - deployment: terraform_destroy
+        environment: ${{ parameters.environment }}
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: TerraformInstaller@0
+                  inputs:
+                    terraformVersion: $(TERRAFORM_VERSION)
+
+                - task: TerraformTaskV4@4
+                  displayName: Terraform init
+                  inputs:
+                    provider: azurerm
+                    command: init
+                    workingDirectory: $(System.DefaultWorkingDirectory)/${{ parameters.environment }}
+                    backendServiceArm: Azure-Service-Connection
+                    backendAzureRmResourceGroupName: terraform-state-rg
+                    backendAzureRmStorageAccountName: $(BACKEND_STORAGE_ACCOUNT)
+                    backendAzureRmContainerName: tfstate
+                    backendAzureRmKey: $(BACKEND_STATE_KEY)
+
+                - task: TerraformTaskV4@4
+                  displayName: Terraform destroy
+                  inputs:
+                    provider: azurerm
+                    command: destroy
+                    workingDirectory: $(System.DefaultWorkingDirectory)/${{ parameters.environment }}
+                    environmentServiceNameAzureRM: Azure-Service-Connection

@@ -4,9 +4,6 @@ Practice project for provisioning Azure infrastructure with Terraform and automa
 
 Repository: [abhi002shek/azure-terraform-infra](https://github.com/abhi002shek/azure-terraform-infra)
 
-## Architecture
-
-![Architecture diagram](architecture.png)
 
 Each environment (`dev`, `staging`) deploys the same stack into isolated resource groups with separate Terraform state backends.
 
